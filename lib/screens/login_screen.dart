@@ -1,10 +1,9 @@
-// ignore_for_file: prefer_const_constructors, sized_box_for_whitespace, use_build_context_synchronously, avoid_print
-
 import 'package:flutter/material.dart';
 import 'package:talktime/screens/chat_screen.dart';
 import 'package:talktime/screens/registration_screen.dart';
 import 'package:talktime/widgets/my_button.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:modal_progress_hud_nsn/modal_progress_hud_nsn.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -17,10 +16,14 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _auth = FirebaseAuth.instance;
-  late String email;
+  final _firestore = FirebaseFirestore.instance;
+  late String emailOrUsername;
   late String password;
 
   bool showSpinner = false;
+  String errorMessage = '';
+  Color passwordBorderColor = Colors.orange; // Default border color
+  bool _isPasswordVisible = false; // Manage password visibility
 
   Future<void> _checkEmailVerification(User user) async {
     await user.reload(); // Refresh user data
@@ -51,6 +54,43 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<User?> _signInWithEmailOrUsername(String emailOrUsername, String password) async {
+    // Check if the input is an email
+    if (RegExp(r"^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$").hasMatch(emailOrUsername)) {
+      try {
+        UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+          email: emailOrUsername,
+          password: password,
+        );
+        return userCredential.user;
+      } catch (e) {
+        print(e);
+        return null;
+      }
+    } else {
+      // If not an email, try to find the user by username in the pending_users collection
+      try {
+        final result = await _firestore.collection('pending_users').where('username', isEqualTo: emailOrUsername).get();
+        if (result.docs.isNotEmpty) {
+          // Assuming only one user per username
+          final userDoc = result.docs.first;
+          String email = userDoc['email']; // Retrieve the associated email
+          
+          // Sign in using the associated email
+          UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+          return userCredential.user;
+        }
+        return null;
+      } catch (e) {
+        print(e);
+        return null;
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ModalProgressHUD(
@@ -69,13 +109,13 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               SizedBox(height: 50),
               TextField(
-                keyboardType: TextInputType.emailAddress,
+                keyboardType: TextInputType.text,
                 textAlign: TextAlign.center,
                 onChanged: (value) {
-                  email = value;
+                  emailOrUsername = value;
                 },
                 decoration: InputDecoration(
-                  hintText: 'Enter your email',
+                  hintText: 'Enter your email or username',
                   contentPadding: EdgeInsets.symmetric(
                     vertical: 10,
                     horizontal: 20,
@@ -94,31 +134,56 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               SizedBox(height: 8),
-              TextField(
-                obscureText: true,
-                keyboardType: TextInputType.emailAddress,
-                textAlign: TextAlign.center,
-                onChanged: (value) {
-                  password = value;
-                },
-                decoration: InputDecoration(
-                  hintText: 'Enter your password',
-                  contentPadding: EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 20,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    obscureText: !_isPasswordVisible, // Manage visibility
+                    textAlign: TextAlign.center,
+                    onChanged: (value) {
+                      password = value;
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Enter your password',
+                      contentPadding: EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 20,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: passwordBorderColor, width: 1),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: passwordBorderColor, width: 2),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _isPasswordVisible = !_isPasswordVisible; // Toggle visibility
+                          });
+                        },
+                      ),
+                    ),
                   ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.orange, width: 1),
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.deepPurple, width: 2),
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                ),
+                  SizedBox(height: 8),
+                  if (errorMessage.isNotEmpty)
+                    Text(
+                      errorMessage,
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                ],
               ),
               SizedBox(height: 24),
               MyButton(
@@ -126,28 +191,43 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () async {
                   setState(() {
                     showSpinner = true;
+                    errorMessage = ''; // Clear previous error message
+                    passwordBorderColor = Colors.orange; // Reset border color
                   });
                   try {
-                    final userCredential = await _auth.signInWithEmailAndPassword(
-                      email: email,
-                      password: password,
-                    );
-                    User? user = userCredential.user;
-
+                    final user = await _signInWithEmailOrUsername(emailOrUsername, password);
                     if (user != null) {
                       await _checkEmailVerification(user);
+                    } else {
+                      // Determine if username or email is invalid
+                      bool emailExists = await _firestore.collection('pending_users').where('email', isEqualTo: emailOrUsername).get().then((result) => result.docs.isNotEmpty);
+                      bool usernameExists = await _firestore.collection('pending_users').where('username', isEqualTo: emailOrUsername).get().then((result) => result.docs.isNotEmpty);
+                      
+                      if (emailExists || usernameExists) {
+                        setState(() {
+                          errorMessage = 'Incorrect password.';
+                          passwordBorderColor = Colors.red; // Set border color to red
+                        });
+                      } else {
+                        setState(() {
+                          errorMessage = 'Invalid email/username.';
+                          passwordBorderColor = Colors.orange; // Reset border color
+                        });
+                      }
                     }
-                    setState(() {
-                      showSpinner = false;
-                    });
                   } catch (e) {
                     print(e);
+                    setState(() {
+                      errorMessage = 'An error occurred. Please try again.';
+                      passwordBorderColor = Colors.orange; // Reset border color
+                    });
+                  } finally {
                     setState(() {
                       showSpinner = false;
                     });
                   }
                 },
-                color: Colors.blue[800]!,
+                color: Colors.green[800]!,
               ),
               SizedBox(height: 24),
               Row(

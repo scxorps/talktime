@@ -19,18 +19,49 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   late String email;
   late String password;
+  late String confirmPassword;
+  late String username;
 
   bool showSpinner = false;
+  bool passwordsMatch = true;
+  bool emailAlreadyExists = false;
+  bool usernameAlreadyExists = false;
 
-  Future<void> _storePendingRegistration(String email, String password) async {
+  bool _isPasswordVisible = false;
+  bool _isConfirmPasswordVisible = false;
+
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  Future<bool> _checkIfEmailExists(String email) async {
+    try {
+      final result = await _firestore.collection('pending_users').where('email', isEqualTo: email).get();
+      return result.docs.isNotEmpty;
+    } catch (e) {
+      print('Error checking email: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _checkIfUsernameExists(String username) async {
+    try {
+      final result = await _firestore.collection('pending_users').where('username', isEqualTo: username).get();
+      return result.docs.isNotEmpty;
+    } catch (e) {
+      print('Error checking username: $e');
+      return false;
+    }
+  }
+
+  Future<void> _storePendingRegistration(String email, String password, String username) async {
     try {
       await _firestore.collection('pending_users').add({
         'email': email,
         'password': password,
+        'username': username,
         'timestamp': FieldValue.serverTimestamp(),
       });
     } catch (e) {
-      print(e);
+      print('Error storing registration: $e');
     }
   }
 
@@ -40,145 +71,294 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       backgroundColor: Colors.white,
       body: ModalProgressHUD(
         inAsyncCall: showSpinner,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                height: 180,
-                child: Image.asset('assets/images/logo.png'),
-              ),
-              SizedBox(height: 50),
-              TextField(
-                keyboardType: TextInputType.emailAddress,
-                textAlign: TextAlign.center,
-                onChanged: (value) {
-                  email = value;
-                },
-                decoration: InputDecoration(
-                  hintText: 'Enter your email',
-                  contentPadding: EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 20,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.orange, width: 1),
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.deepPurple, width: 2),
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                ),
-              ),
-              SizedBox(height: 8),
-              TextField(
-                obscureText: true,
-                keyboardType: TextInputType.emailAddress,
-                textAlign: TextAlign.center,
-                onChanged: (value) {
-                  password = value;
-                },
-                decoration: InputDecoration(
-                  hintText: 'Create your password',
-                  contentPadding: EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 20,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.orange, width: 1),
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.deepPurple, width: 2),
-                    borderRadius: BorderRadius.all(Radius.circular(32)),
-                  ),
-                ),
-              ),
-              SizedBox(height: 24),
-              MyButton(
-                title: 'Register',
-                onPressed: () async {
-                  setState(() {
-                    showSpinner = true;
-                  });
-                  try {
-                    // Create the user in Firebase Authentication
-                    UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
-                      email: email,
-                      password: password,
-                    );
-
-                    // Send a verification email
-                    User? user = userCredential.user;
-                    if (user != null) {
-                      await user.sendEmailVerification();
-                    }
-
-                    // Store the email and password in Firestore for later verification
-                    await _storePendingRegistration(email, password);
-
-                    // Inform the user to check their email
-                    showDialog(
-                      context: context,
-                      builder: (context) {
-                        return AlertDialog(
-                          title: Text('Verify Your Email'),
-                          content: Text(
-                              'A verification email has been sent to your email address. Please verify your email.'),
-                          actions: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.pushNamedAndRemoveUntil(
-                                  context,
-                                  LoginScreen.screenRoute,
-                                  (route) => false,
-                                );
-                              },
-                              child: Text('Go to Login'),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  } catch (e) {
-                    print(e);
-                  } finally {
-                    setState(() {
-                      showSpinner = false;
-                    });
-                  }
-                },
-                color: Colors.blue[800]!,
-              ),
-              SizedBox(height: 24),
-              Row(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 100),
+            child: Form(
+              key: _formKey,
+              child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text("I have an account, "),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pushNamed(context, LoginScreen.screenRoute);
+                  Container(
+                    height: 180,
+                    child: Image.asset('assets/images/logo.png'),
+                  ),
+                  SizedBox(height: 50),
+                  TextFormField(
+                    keyboardType: TextInputType.text,
+                    textAlign: TextAlign.center,
+                    onChanged: (value) {
+                      username = value;
                     },
-                    child: Text(
-                      'Login',
-                      style: TextStyle(
-                        color: Colors.blue,
-                        fontWeight: FontWeight.bold,
+                    decoration: InputDecoration(
+                      hintText: 'Enter your username',
+                      contentPadding: EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 20,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.orange, width: 1),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.deepPurple, width: 2),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
                     ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Username is required';
+                      }
+                      return null;
+                    },
+                  ),
+                  SizedBox(height: 8),
+                  TextFormField(
+                    keyboardType: TextInputType.emailAddress,
+                    textAlign: TextAlign.center,
+                    onChanged: (value) {
+                      email = value;
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Enter your email',
+                      contentPadding: EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 20,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.orange, width: 1),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.deepPurple, width: 2),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Email is required';
+                      }
+                      return null;
+                    },
+                  ),
+                  SizedBox(height: 8),
+                  TextFormField(
+                    obscureText: !_isPasswordVisible,
+                    textAlign: TextAlign.center,
+                    onChanged: (value) {
+                      password = value;
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Create your password',
+                      contentPadding: EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 20,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.orange, width: 1),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.deepPurple, width: 2),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _isPasswordVisible = !_isPasswordVisible;
+                          });
+                        },
+                      ),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Password is required';
+                      }
+                      return null;
+                    },
+                  ),
+                  SizedBox(height: 8),
+                  TextFormField(
+                    obscureText: !_isConfirmPasswordVisible,
+                    textAlign: TextAlign.center,
+                    onChanged: (value) {
+                      confirmPassword = value;
+                      setState(() {
+                        passwordsMatch = password == confirmPassword;
+                      });
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Confirm your password',
+                      contentPadding: EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 20,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.orange, width: 1),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.deepPurple, width: 2),
+                        borderRadius: BorderRadius.all(Radius.circular(32)),
+                      ),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
+                          });
+                        },
+                      ),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Confirm password is required';
+                      }
+                      if (value != password) {
+                        return 'Passwords do not match';
+                      }
+                      return null;
+                    },
+                  ),
+                  SizedBox(height: 24),
+                  MyButton(
+                    color: Colors.blue[800]!,
+                    title: 'Register',
+                    onPressed: () async {
+                      if (_formKey.currentState!.validate()) {
+                        setState(() {
+                          showSpinner = true;
+                        });
+
+                        // Check if email or username already exists
+                        emailAlreadyExists = await _checkIfEmailExists(email);
+                        usernameAlreadyExists = await _checkIfUsernameExists(username);
+
+                        if (emailAlreadyExists) {
+                          setState(() {
+                            showSpinner = false; // Reset spinner before showing dialog
+                          });
+                          showDialog(
+                            context: context,
+                            builder: (context) {
+                              return AlertDialog(
+                                title: Text('Email Already Exists'),
+                                content: Text('The email you entered is already registered. Please use a different email.'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pushReplacementNamed(context, LoginScreen.screenRoute);
+                                    },
+                                    child: Text('Go to Login'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      setState(() {
+                                        showSpinner = false; // Reset spinner after closing dialog
+                                      });
+                                    },
+                                    child: Text('Go Back'),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                        } else if (usernameAlreadyExists) {
+                          setState(() {
+                            showSpinner = false; // Reset spinner before showing dialog
+                          });
+                          showDialog(
+                            context: context,
+                            builder: (context) {
+                              return AlertDialog(
+                                title: Text('Username Already Exists'),
+                                content: Text('The username you entered is already taken. Please choose a different username.'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pushReplacementNamed(context, LoginScreen.screenRoute);
+                                    },
+                                    child: Text('Go to Login'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      setState(() {
+                                        showSpinner = false; // Reset spinner after closing dialog
+                                      });
+                                    },
+                                    child: Text('Go Back'),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                        } else {
+                          // Store the pending user and show success message
+                          await _storePendingRegistration(email, password, username);
+                          setState(() {
+                            showSpinner = false; // Reset spinner after storing data
+                          });
+
+                          // Show verification message and timer
+                          showDialog(
+                            context: context,
+                            builder: (context) {
+                              return AlertDialog(
+                                title: Text('Check Your Email'),
+                                content: Text('A validation email has been sent to you. Please confirm your account and navigate to login. You can request a new verification email in 2:00.'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pushReplacementNamed(context, LoginScreen.screenRoute);
+                                    },
+                                    child: Text('Go to Login'),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                        }
+                      }
+                    },
+                  ),
+                  SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('Already have an account?'),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pushNamed(context, LoginScreen.screenRoute);
+                        },
+                        child: Text('Go to Login'),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
