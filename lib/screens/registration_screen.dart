@@ -4,6 +4,7 @@ import 'package:talktime/widgets/my_button.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:modal_progress_hud_nsn/modal_progress_hud_nsn.dart';
+import 'package:talktime/widgets/password_strength_indicator.dart'; // Import the new widget
 
 class RegistrationScreen extends StatefulWidget {
   static const String screenRoute = 'registration_screen';
@@ -17,10 +18,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
 
-  late String email;
-  late String password;
-  late String confirmPassword;
-  late String username;
+  String email = '';
+  String password = '';
+  String confirmPassword = '';
+  String username = '';
 
   bool showSpinner = false;
   bool passwordsMatch = true;
@@ -63,6 +64,50 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     } catch (e) {
       print('Error storing registration: $e');
     }
+  }
+
+  Future<void> _sendValidationEmail(User user) async {
+    try {
+      if (user != null && !user.emailVerified) {
+        await user.sendEmailVerification();
+        print('Verification email sent to ${user.email}');
+      } else {
+        print('User is null or email is already verified');
+      }
+    } catch (e) {
+      print('Error sending verification email: $e');
+    }
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Error'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            child: Text('Go Back'),
+            onPressed: () {
+              setState(() {
+                showSpinner = false;
+              });
+              Navigator.of(context).pop();
+            },
+          ),
+          TextButton(
+            child: Text('Go to Login'),
+            onPressed: () {
+              setState(() {
+                showSpinner = false;
+              });
+              Navigator.of(context).pop();
+              Navigator.pushNamed(context, LoginScreen.screenRoute);
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -154,6 +199,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     textAlign: TextAlign.center,
                     onChanged: (value) {
                       password = value;
+                      setState(() {
+                        passwordsMatch = password == confirmPassword;
+                      });
                     },
                     decoration: InputDecoration(
                       hintText: 'Create your password',
@@ -172,6 +220,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         borderSide: BorderSide(color: Colors.deepPurple, width: 2),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
+                      prefixIcon: PasswordStrengthIndicator(password: password),
                       suffixIcon: IconButton(
                         icon: Icon(
                           _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
@@ -232,7 +281,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Confirm password is required';
+                        return 'Confirm Password is required';
                       }
                       if (value != password) {
                         return 'Passwords do not match';
@@ -242,7 +291,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   ),
                   SizedBox(height: 24),
                   MyButton(
-                    color: Colors.blue[800]!,
+                    color: Colors.blue,
                     title: 'Register',
                     onPressed: () async {
                       if (_formKey.currentState!.validate()) {
@@ -250,109 +299,84 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                           showSpinner = true;
                         });
 
-                        // Check if email or username already exists
-                        emailAlreadyExists = await _checkIfEmailExists(email);
-                        usernameAlreadyExists = await _checkIfUsernameExists(username);
+                        final emailExists = await _checkIfEmailExists(email);
+                        final usernameExists = await _checkIfUsernameExists(username);
 
-                        if (emailAlreadyExists) {
-                          setState(() {
-                            showSpinner = false; // Reset spinner before showing dialog
-                          });
-                          showDialog(
-                            context: context,
-                            builder: (context) {
-                              return AlertDialog(
-                                title: Text('Email Already Exists'),
-                                content: Text('The email you entered is already registered. Please use a different email.'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () {
-                                      Navigator.pushReplacementNamed(context, LoginScreen.screenRoute);
-                                    },
-                                    child: Text('Go to Login'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                      setState(() {
-                                        showSpinner = false; // Reset spinner after closing dialog
-                                      });
-                                    },
-                                    child: Text('Go Back'),
-                                  ),
-                                ],
-                              );
-                            },
-                          );
-                        } else if (usernameAlreadyExists) {
-                          setState(() {
-                            showSpinner = false; // Reset spinner before showing dialog
-                          });
-                          showDialog(
-                            context: context,
-                            builder: (context) {
-                              return AlertDialog(
-                                title: Text('Username Already Exists'),
-                                content: Text('The username you entered is already taken. Please choose a different username.'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () {
-                                      Navigator.pushReplacementNamed(context, LoginScreen.screenRoute);
-                                    },
-                                    child: Text('Go to Login'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                      setState(() {
-                                        showSpinner = false; // Reset spinner after closing dialog
-                                      });
-                                    },
-                                    child: Text('Go Back'),
-                                  ),
-                                ],
-                              );
-                            },
-                          );
+                        if (emailExists) {
+                          _showErrorDialog('This email is already registered. Please use a different email.');
+                        } else if (usernameExists) {
+                          _showErrorDialog('This username is already taken. Please choose a different username.');
+                        } else if (!passwordsMatch) {
+                          _showErrorDialog('Passwords do not match. Please try again.');
                         } else {
-                          // Store the pending user and show success message
-                          await _storePendingRegistration(email, password, username);
-                          setState(() {
-                            showSpinner = false; // Reset spinner after storing data
-                          });
+                          try {
+                            final userCredential = await _auth.createUserWithEmailAndPassword(
+                              email: email,
+                              password: password,
+                            );
+                            final user = userCredential.user;
 
-                          // Show verification message and timer
-                          showDialog(
-                            context: context,
-                            builder: (context) {
-                              return AlertDialog(
-                                title: Text('Check Your Email'),
-                                content: Text('A validation email has been sent to you. Please confirm your account and navigate to login. You can request a new verification email in 2:00.'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () {
-                                      Navigator.pushReplacementNamed(context, LoginScreen.screenRoute);
-                                    },
-                                    child: Text('Go to Login'),
-                                  ),
-                                ],
+                            if (user != null) {
+                              await _storePendingRegistration(email, password, username);
+                              await _sendValidationEmail(user);
+
+                              showDialog(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: Text('Success'),
+                                  content: Text('A validation email has been sent to you. Please confirm your account and navigate to login. You can request a new verification email in 2 minutes '),
+                                  actions: [
+                                    TextButton(
+                                      child: Text('Go Back'),
+                                      onPressed: () {
+                                        setState(() {
+                                          showSpinner = false;
+                                        });
+                                        Navigator.of(context).pop();
+                                      },
+                                    ),
+                                    TextButton(
+                                      child: Text('Go to Login'),
+                                      onPressed: () {
+                                        setState(() {
+                                          showSpinner = false;
+                                        });
+                                        Navigator.of(context).pop();
+                                        Navigator.pushNamed(context, LoginScreen.screenRoute);
+                                      },
+                                    ),
+                                  ],
+                                ),
                               );
-                            },
-                          );
+                            }
+                          } catch (e) {
+                            print('Error registering user: $e');
+                            _showErrorDialog('An error occurred during registration. Please try again.');
+                          }
                         }
                       }
                     },
                   ),
-                  SizedBox(height: 24),
+                  SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('Already have an account?'),
+                      Text(
+                        'Already have an account?',
+                        style: TextStyle(color: Colors.black, fontSize: 16),
+                      ),
                       TextButton(
                         onPressed: () {
                           Navigator.pushNamed(context, LoginScreen.screenRoute);
                         },
-                        child: Text('Go to Login'),
+                        child: Text(
+                          'Go to Login',
+                          style: TextStyle(
+                            color: Colors.blue,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ],
                   ),
