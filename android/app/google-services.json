@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "619698794413",
+    "project_id": "talktime-4e96f",
+    "storage_bucket": "talktime-4e96f.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:619698794413:android:3721fed9494fbfb66d3b24",
+        "android_client_info": {
+          "package_name": "com.redj.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAop4pKtSzo-_TkUzOB8dHJ2INyxp_6i28"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
