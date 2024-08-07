@@ -2,7 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:talktime/screens/chat_screen.dart';
+import 'package:talktime/screens/delete_account.dart';
 import 'package:talktime/screens/login_screen.dart';
+import 'package:talktime/screens/profile_settings_screen.dart';
 import 'package:talktime/screens/registration_screen.dart';
 import 'package:talktime/screens/welcome_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -38,6 +40,8 @@ class MyApp extends StatelessWidget {
         LoginScreen.screenRoute: (context) => LoginScreen(),
         RegistrationScreen.screenRoute: (context) => RegistrationScreen(),
         ChatScreen.screenRoute:(context) => ChatScreen(),
+        ProfileSettings.screenRoute: (context) => ProfileSettings(),
+        // DeleteAccountScreen.screenRoute: (context) => DeleteAccountScreen(),
       },);
   }
 }

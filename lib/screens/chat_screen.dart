@@ -1,12 +1,10 @@
-// ignore_for_file: prefer_const_constructors, avoid_print
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:talktime/screens/login_screen.dart';
+import 'package:talktime/widgets/menu_bar.dart'; // Import MenuBar widget
 
 final _firestore = FirebaseFirestore.instance;
-User? signedInUser; // Changed to nullable User
+User? signedInUser;
 
 class ChatScreen extends StatefulWidget {
   static const String screenRoute = 'chat_screen';
@@ -16,15 +14,25 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with SingleTickerProviderStateMixin {
   final messageTextController = TextEditingController();
   final _auth = FirebaseAuth.instance;
-  String? messagetext; // this will give us the message
+  String? messagetext;
+  late AnimationController _drawerController;
+  late Animation<double> _drawerAnimation;
 
   @override
   void initState() {
     super.initState();
     getCurrentUser();
+    _drawerController = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: 300),
+    );
+    _drawerAnimation = CurvedAnimation(
+      parent: _drawerController,
+      curve: Curves.easeInOut,
+    );
   }
 
   void getCurrentUser() {
@@ -37,19 +45,25 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _logout() async {
-    try {
-      await _auth.signOut();
-      Navigator.pushReplacementNamed(context, LoginScreen.screenRoute);
-    } catch (e) {
-      print('Error signing out: $e');
+  void _toggleDrawer() {
+    if (_drawerController.isDismissed) {
+      _drawerController.forward();
+    } else {
+      _drawerController.reverse();
     }
+  }
+
+  @override
+  void dispose() {
+    _drawerController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false, // Removes the back arrow
         backgroundColor: const Color.fromARGB(255, 23, 245, 97),
         title: Row(
           children: [
@@ -60,70 +74,86 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
-            onPressed: _logout,
-            icon: Icon(Icons.close),
+            icon: Icon(Icons.menu),
+            onPressed: _toggleDrawer,
           ),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            MessagesStreamBuilder(),
-            Container(
-              decoration: BoxDecoration(
-                border: Border(
-                  top: BorderSide(
-                    color: Color.fromARGB(255, 23, 245, 97),
-                    width: 2,
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                MessagesStreamBuilder(),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(
+                        color: Color.fromARGB(255, 23, 245, 97),
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: messageTextController,
+                          onChanged: (value) {
+                            messagetext = value;
+                          },
+                          decoration: InputDecoration(
+                            hintText: 'Type a message',
+                            contentPadding: EdgeInsets.symmetric(
+                              vertical: 15,
+                              horizontal: 20,
+                            ),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          messageTextController.clear();
+                          if (messagetext != null && messagetext!.isNotEmpty) {
+                            _firestore.collection('messages').add({
+                              'text': messagetext,
+                              'sender': signedInUser?.email,
+                              'time': FieldValue.serverTimestamp(),
+                            });
+                            messagetext = null;
+                          }
+                        },
+                        child: Text(
+                          'Send',
+                          style: TextStyle(
+                            color: Colors.blue[800],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: messageTextController,
-                      onChanged: (value) {
-                        messagetext = value;
-                      },
-                      decoration: InputDecoration(
-                        hintText: 'Type a message',
-                        contentPadding: EdgeInsets.symmetric(
-                          vertical: 15,
-                          horizontal: 20,
-                        ),
-                        border: InputBorder.none,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      messageTextController.clear();
-                      if (messagetext != null && messagetext!.isNotEmpty) {
-                        _firestore.collection('messages').add({
-                          'text': messagetext,
-                          'sender': signedInUser?.email,
-                          'time': FieldValue.serverTimestamp(),
-                        });
-                        messagetext = null; // Clear the message text after sending
-                      }
-                    },
-                    child: Text(
-                      'Send',
-                      style: TextStyle(
-                        color: Colors.blue[800],
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                ],
+              ],
+            ),
+          ),
+          SlideTransition(
+            position: _drawerAnimation.drive(
+              Tween<Offset>(
+                begin: Offset(1.0, 0.0),
+                end: Offset.zero,
               ),
             ),
-          ],
-        ),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: MenuBare(), // Use the MenuBar widget here
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -131,6 +161,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
 class MessagesStreamBuilder extends StatelessWidget {
   const MessagesStreamBuilder({super.key});
+
+  Future<String> _getUsername(String email) async {
+    final userSnapshot = await _firestore.collection('current_users')
+        .where('email', isEqualTo: email)
+        .limit(1)
+        .get();
+    
+    if (userSnapshot.docs.isNotEmpty) {
+      return userSnapshot.docs.first['username'];
+    }
+    return 'Unknown User';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -144,26 +186,48 @@ class MessagesStreamBuilder extends StatelessWidget {
             ),
           );
         }
-        List<MessageLine> messageWidgets = [];
+
+        List<Future<MessageLine>> messageFutures = [];
         final messages = snapshot.data!.docs.reversed;
+
         for (var message in messages) {
           final messageText = message['text'];
-          final messageSender = message['sender'];
+          final messageSenderEmail = message['sender'];
           final currentUser = signedInUser?.email;
 
-          final messageWidget = MessageLine(
-            sender: messageSender,
-            text: messageText,
-            isMe: currentUser == messageSender,
+          // Create a future to fetch the username
+          final usernameFuture = _getUsername(messageSenderEmail);
+
+          messageFutures.add(
+            usernameFuture.then((senderUsername) => MessageLine(
+              sender: senderUsername,
+              text: messageText,
+              isMe: currentUser == messageSenderEmail,
+            )),
           );
-          messageWidgets.add(messageWidget);
         }
-        return Expanded(
-          child: ListView(
-            reverse: true,
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 20),
-            children: messageWidgets,
-          ),
+
+        // Wait for all futures to complete
+        return FutureBuilder<List<MessageLine>>(
+          future: Future.wait(messageFutures),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return Center(
+                child: CircularProgressIndicator(
+                  backgroundColor: Colors.lightBlueAccent,
+                ),
+              );
+            }
+
+            final messageWidgets = snapshot.data!;
+            return Expanded(
+              child: ListView(
+                reverse: true,
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 20),
+                children: messageWidgets,
+              ),
+            );
+          },
         );
       },
     );

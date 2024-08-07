@@ -27,12 +27,15 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   bool passwordsMatch = true;
   bool emailAlreadyExists = false;
   bool usernameAlreadyExists = false;
+  bool _isPasswordEntered = false;
+  bool _isConfirmPasswordEntered = false;
 
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
+  // Check if the email already exists in 'pending_users' collection
   Future<bool> _checkIfEmailExists(String email) async {
     try {
       final result = await _firestore.collection('pending_users').where('email', isEqualTo: email).get();
@@ -43,6 +46,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 
+  // Check if the username already exists in 'pending_users' collection
   Future<bool> _checkIfUsernameExists(String username) async {
     try {
       final result = await _firestore.collection('pending_users').where('username', isEqualTo: username).get();
@@ -53,19 +57,22 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 
+  // Store user registration details in 'pending_users' collection
   Future<void> _storePendingRegistration(String email, String password, String username) async {
     try {
       await _firestore.collection('pending_users').add({
         'email': email,
-        'password': password,
+        'password': password, // Storing plain password is not recommended; use hashed passwords in real applications
         'username': username,
         'timestamp': FieldValue.serverTimestamp(),
       });
+      print('Pending registration stored successfully');
     } catch (e) {
-      print('Error storing registration: $e');
+      print('Error storing pending registration: $e');
     }
   }
 
+  // Send email verification to the newly registered user
   Future<void> _sendValidationEmail(User user) async {
     try {
       if (user != null && !user.emailVerified) {
@@ -79,6 +86,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 
+  // Show error dialog with options to go back or navigate to login screen
   void _showErrorDialog(String message) {
     showDialog(
       context: context,
@@ -125,9 +133,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    height: 180,
-                    child: Image.asset('assets/images/logo.png'),
+                  Column(
+                    children: [
+                      Container(
+                        height: 180,
+                        child: Image.asset('assets/images/logo.png'),
+                      ),
+                      SizedBox(height: 12), // Space between the image and text
+                      Text(
+                        'TalkTime',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.deepPurple, // Adjust color as needed
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
                   SizedBox(height: 50),
                   TextFormField(
@@ -200,6 +222,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     onChanged: (value) {
                       password = value;
                       setState(() {
+                        _isPasswordEntered = password.isNotEmpty;
                         passwordsMatch = password == confirmPassword;
                       });
                     },
@@ -220,18 +243,22 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         borderSide: BorderSide(color: Colors.deepPurple, width: 2),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
-                      prefixIcon: PasswordStrengthIndicator(password: password),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          color: Colors.grey,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _isPasswordVisible = !_isPasswordVisible;
-                          });
-                        },
-                      ),
+                      prefixIcon: _isPasswordEntered
+                          ? PasswordStrengthIndicator(password: password)
+                          : null,
+                      suffixIcon: _isPasswordEntered
+                          ? IconButton(
+                              icon: Icon(
+                                _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                                color: Colors.grey,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _isPasswordVisible = !_isPasswordVisible;
+                                });
+                              },
+                            )
+                          : null,
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
@@ -247,6 +274,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     onChanged: (value) {
                       confirmPassword = value;
                       setState(() {
+                        _isConfirmPasswordEntered = confirmPassword.isNotEmpty;
                         passwordsMatch = password == confirmPassword;
                       });
                     },
@@ -267,21 +295,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         borderSide: BorderSide(color: Colors.deepPurple, width: 2),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                          color: Colors.grey,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
-                          });
-                        },
-                      ),
+                      suffixIcon: _isConfirmPasswordEntered
+                        ? IconButton(
+                            icon: Icon(
+                              _isConfirmPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                              color: Colors.grey,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _isConfirmPasswordVisible = !_isConfirmPasswordVisible;
+                              });
+                            },
+                          )
+                        : null,
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Confirm Password is required';
+                        return 'Confirm password is required';
                       }
                       if (value != password) {
                         return 'Passwords do not match';
@@ -298,84 +328,51 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         setState(() {
                           showSpinner = true;
                         });
+                        try {
+                          emailAlreadyExists = await _checkIfEmailExists(email);
+                          usernameAlreadyExists = await _checkIfUsernameExists(username);
 
-                        final emailExists = await _checkIfEmailExists(email);
-                        final usernameExists = await _checkIfUsernameExists(username);
-
-                        if (emailExists) {
-                          _showErrorDialog('This email is already registered. Please use a different email.');
-                        } else if (usernameExists) {
-                          _showErrorDialog('This username is already taken. Please choose a different username.');
-                        } else if (!passwordsMatch) {
-                          _showErrorDialog('Passwords do not match. Please try again.');
-                        } else {
-                          try {
-                            final userCredential = await _auth.createUserWithEmailAndPassword(
+                          if (emailAlreadyExists) {
+                            _showErrorDialog('Email already exists. Please try logging in.');
+                          } else if (usernameAlreadyExists) {
+                            _showErrorDialog('Username already exists. Please try another one.');
+                          } else {
+                            // Register user and store in Firestore
+                            UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
                               email: email,
                               password: password,
                             );
-                            final user = userCredential.user;
-
-                            if (user != null) {
-                              await _storePendingRegistration(email, password, username);
-                              await _sendValidationEmail(user);
-
-                              showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: Text('Success'),
-                                  content: Text('A validation email has been sent to you. Please confirm your account and navigate to login. You can request a new verification email in 2 minutes '),
-                                  actions: [
-                                    TextButton(
-                                      child: Text('Go Back'),
-                                      onPressed: () {
-                                        setState(() {
-                                          showSpinner = false;
-                                        });
-                                        Navigator.of(context).pop();
-                                      },
-                                    ),
-                                    TextButton(
-                                      child: Text('Go to Login'),
-                                      onPressed: () {
-                                        setState(() {
-                                          showSpinner = false;
-                                        });
-                                        Navigator.of(context).pop();
-                                        Navigator.pushNamed(context, LoginScreen.screenRoute);
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            print('Error registering user: $e');
-                            _showErrorDialog('An error occurred during registration. Please try again.');
+                            await _storePendingRegistration(email, password, username);
+                            await _sendValidationEmail(userCredential.user!);
+                            Navigator.pushNamed(context, LoginScreen.screenRoute);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('A validation email has been sent to $email. Please confirm your account and navigate to login.'),
+                              ),
+                            );
                           }
+                        } catch (e) {
+                          print('Registration error: $e');
+                        } finally {
+                          setState(() {
+                            showSpinner = false;
+                          });
                         }
                       }
                     },
                   ),
-                  SizedBox(height: 20),
+                  SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        'Already have an account?',
-                        style: TextStyle(color: Colors.black, fontSize: 16),
-                      ),
+                      Text('Already registered? '),
                       TextButton(
                         onPressed: () {
                           Navigator.pushNamed(context, LoginScreen.screenRoute);
                         },
                         child: Text(
                           'Go to Login',
-                          style: TextStyle(
-                            color: Colors.blue,
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: TextStyle(color: Colors.blue),
                         ),
                       ),
                     ],
