@@ -32,23 +32,35 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<User?> _signInWithEmailOrUsername(String emailOrUsername, String password) async {
   try {
     if (RegExp(r"^[\w-]+(\.[\w-]+)*@([\w-]+\.)+[a-zA-Z]{2,7}$").hasMatch(emailOrUsername)) {
-      // Sign in with email and password
+      // Email-based sign-in
       UserCredential userCredential = await _auth.signInWithEmailAndPassword(
         email: emailOrUsername,
         password: password,
       );
       return userCredential.user;
     } else {
-      // Handle username login
-      final result = await _firestore.collection('pending_users').where('username', isEqualTo: emailOrUsername).get();
-      if (result.docs.isNotEmpty) {
-        final userDoc = result.docs.first;
+      // Username-based sign-in in pending_users
+      final pendingResult = await _firestore.collection('pending_users').where('username', isEqualTo: emailOrUsername).get();
+      if (pendingResult.docs.isNotEmpty) {
+        final userDoc = pendingResult.docs.first;
         String email = userDoc['email'];
         UserCredential userCredential = await _auth.signInWithEmailAndPassword(
           email: email,
           password: password,
         );
         return userCredential.user;
+      } else {
+        // Username-based sign-in in current_users
+        final currentResult = await _firestore.collection('current_users').where('username', isEqualTo: emailOrUsername).get();
+        if (currentResult.docs.isNotEmpty) {
+          final userDoc = currentResult.docs.first;
+          String email = userDoc['email'];
+          UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+          return userCredential.user;
+        }
       }
       return null;
     }
@@ -57,6 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return null;
   }
 }
+
 
 
   Future<void> _handleForgotPassword(String email) async {
@@ -126,13 +139,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (user != null) {
       if (user.emailVerified) {
         final currentUserSnapshot = await _firestore.collection('current_users').doc(user.uid).get();
-        print('Current user data: ${currentUserSnapshot.data()}');
 
         if (currentUserSnapshot.exists) {
           Navigator.pushNamed(context, ChatScreen.screenRoute);
         } else {
           final pendingUsersSnapshot = await _firestore.collection('pending_users').where('email', isEqualTo: user.email).get();
-          print('Pending users count: ${pendingUsersSnapshot.docs.length}');
 
           if (pendingUsersSnapshot.docs.isNotEmpty) {
             final pendingUserDoc = pendingUsersSnapshot.docs.first;
@@ -143,7 +154,6 @@ class _LoginScreenState extends State<LoginScreen> {
               'email': data['email'],
               'profilePicture': data['profilePicture'],
               'createdAt': FieldValue.serverTimestamp(),
-              'password' : data['password'],
             });
 
             await pendingUserDoc.reference.delete();
@@ -155,7 +165,6 @@ class _LoginScreenState extends State<LoginScreen> {
               'email': user.email ?? '',
               'profilePicture': 'https://example.com/default-profile-picture.png',
               'createdAt': FieldValue.serverTimestamp(),
-              'password' : password,
             });
 
             Navigator.pushNamed(context, ChatScreen.screenRoute);
@@ -176,22 +185,10 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
     } else {
-      bool emailExistsInPending = (await _firestore.collection('pending_users').where('email', isEqualTo: emailOrUsername).get()).docs.isNotEmpty;
-      bool usernameExistsInPending = (await _firestore.collection('pending_users').where('username', isEqualTo: emailOrUsername).get()).docs.isNotEmpty;
-      bool emailExistsInCurrent = (await _firestore.collection('current_users').where('email', isEqualTo: emailOrUsername).get()).docs.isNotEmpty;
-      bool usernameExistsInCurrent = (await _firestore.collection('current_users').where('username', isEqualTo: emailOrUsername).get()).docs.isNotEmpty;
-
-      if (emailExistsInPending || usernameExistsInPending || emailExistsInCurrent || usernameExistsInCurrent) {
-        setState(() {
-          errorMessage = 'Incorrect password.';
-          passwordBorderColor = Colors.red;
-        });
-      } else {
-        setState(() {
-          errorMessage = 'Invalid email/username.';
-          passwordBorderColor = Colors.orange;
-        });
-      }
+      setState(() {
+        errorMessage = 'Incorrect username or password.';
+        passwordBorderColor = Colors.red;
+      });
 
       setState(() {
         _failedAttempts += 1;
@@ -213,6 +210,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 }
+
 
 
   void _showDialog(String title, String content) {

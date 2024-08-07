@@ -1,8 +1,6 @@
 // ignore_for_file: prefer_const_constructors
-
 import 'package:flutter/material.dart';
 import 'package:talktime/screens/chat_screen.dart';
-import 'package:talktime/screens/delete_account.dart';
 import 'package:talktime/screens/login_screen.dart';
 import 'package:talktime/screens/profile_settings_screen.dart';
 import 'package:talktime/screens/registration_screen.dart';

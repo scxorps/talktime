@@ -33,14 +33,27 @@ class _ProfileSettingsState extends State<ProfileSettings> {
     getCurrentUser();
   }
 
-  void getCurrentUser() {
-    final user = _auth.currentUser;
-    if (user != null) {
-      setState(() {
-        this.user = user;
-        _emailController.text = user.email ?? '';
-        _usernameController.text = user.displayName ?? ''; // Set username
-      });
+  Future<void> getCurrentUser() async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null) {
+        setState(() {
+          this.user = user;
+        });
+
+        // Fetch user info from Firestore
+        final userDoc = await _firestore.collection('current_users').doc(user.uid).get();
+        if (userDoc.exists) {
+          final data = userDoc.data();
+          _emailController.text = data?['email'] ?? '';
+          _usernameController.text = data?['username'] ?? '';
+        }
+      }
+    } catch (e) {
+      print('Error fetching user info: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error fetching user information.')),
+      );
     }
   }
 
@@ -79,6 +92,7 @@ class _ProfileSettingsState extends State<ProfileSettings> {
   Future<void> _updateProfile() async {
     if (user != null) {
       try {
+        // Update user profile info
         await user!.updateProfile(displayName: _usernameController.text);
         await user!.updateEmail(_emailController.text);
         if (_passwordController.text.isNotEmpty) {
@@ -107,77 +121,74 @@ class _ProfileSettingsState extends State<ProfileSettings> {
         title: Text('Profile Settings'),
         backgroundColor: Colors.blueAccent,
       ),
-      body: Padding(
+      body: ListView(
         padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: GestureDetector(
-                onTap: _pickImage,
-                child: CircleAvatar(
-                  radius: 60,
-                  backgroundImage: _image != null ? FileImage(File(_image!.path)) : null,
-                  child: _image == null
-                      ? Icon(Icons.camera_alt, size: 50, color: Colors.grey[800])
-                      : null,
+        children: [
+          Center(
+            child: GestureDetector(
+              onTap: _pickImage,
+              child: CircleAvatar(
+                radius: 60,
+                backgroundImage: _image != null ? FileImage(File(_image!.path)) : null,
+                child: _image == null
+                    ? Icon(Icons.camera_alt, size: 50, color: Colors.grey[800])
+                    : null,
+              ),
+            ),
+          ),
+          SizedBox(height: 16.0),
+          Center(
+            child: ElevatedButton(
+              onPressed: _uploadImage,
+              child: Text('Update Image'),
+            ),
+          ),
+          SizedBox(height: 24.0),
+          Text('Username:', style: TextStyle(fontSize: 18)),
+          TextField(
+            controller: _usernameController,
+            decoration: InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: 'Enter your username',
+            ),
+          ),
+          SizedBox(height: 16.0),
+          Text('Email:', style: TextStyle(fontSize: 18)),
+          TextField(
+            controller: _emailController,
+            decoration: InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: 'Enter your email',
+            ),
+          ),
+          SizedBox(height: 16.0),
+          Text('Password:', style: TextStyle(fontSize: 18)),
+          TextField(
+            controller: _passwordController,
+            obscureText: !_isPasswordVisible,
+            decoration: InputDecoration(
+              border: OutlineInputBorder(),
+              hintText: 'Enter your new password',
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
                 ),
+                onPressed: () {
+                  setState(() {
+                    _isPasswordVisible = !_isPasswordVisible;
+                  });
+                },
               ),
             ),
-            SizedBox(height: 16.0),
-            Center(
-              child: ElevatedButton(
-                onPressed: _uploadImage,
-                child: Text('Update Image'),
-              ),
+          ),
+          SizedBox(height: 24.0),
+          Center(
+            child: ElevatedButton(
+              onPressed: _updateProfile,
+              child: Text('Update Profile'),
             ),
-            SizedBox(height: 24.0),
-            Text('Username:', style: TextStyle(fontSize: 18)),
-            TextField(
-              controller: _usernameController,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'Enter your username',
-              ),
-            ),
-            SizedBox(height: 16.0),
-            Text('Email:', style: TextStyle(fontSize: 18)),
-            TextField(
-              controller: _emailController,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'Enter your email',
-              ),
-            ),
-            SizedBox(height: 16.0),
-            Text('Password:', style: TextStyle(fontSize: 18)),
-            TextField(
-              controller: _passwordController,
-              obscureText: !_isPasswordVisible,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'Enter your new password',
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _isPasswordVisible = !_isPasswordVisible;
-                    });
-                  },
-                ),
-              ),
-            ),
-            SizedBox(height: 24.0),
-            Center(
-              child: ElevatedButton(
-                onPressed: _updateProfile,
-                child: Text('Update Profile'),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

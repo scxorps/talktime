@@ -67,7 +67,7 @@ class MenuBare extends StatelessWidget {
                         await user.reauthenticateWithCredential(credential);
 
                         // Delete user data from Firestore
-                        await _firestore.collection('users').doc(user.uid).delete();
+                        await _firestore.collection('current_users').doc(user.uid).delete();
 
                         // Delete user from Firebase Authentication
                         await user.delete();
