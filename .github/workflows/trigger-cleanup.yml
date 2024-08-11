@@ -1,0 +1,14 @@
+name: Trigger Firebase Function
+
+on:
+  schedule:
+    - cron: '*/1 * * * *'  # Runs every minute
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Trigger HTTP function
+      run: |
+        curl -X GET https://<your-region>-<your-project-id>.cloudfunctions.net/cleanUpPendingUsers
