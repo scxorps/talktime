@@ -1,10 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:talktime/screens/login_screen.dart'; // Import your login screen
+import 'package:talktime/screens/login_screen.dart';
 import 'package:talktime/widgets/my_button.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:modal_progress_hud_nsn/modal_progress_hud_nsn.dart';
-import 'package:talktime/widgets/password_strength_indicator.dart'; // Import the new widget
+import 'package:talktime/widgets/password_strength_indicator.dart';
+import 'package:crypto/crypto.dart';
 
 class RegistrationScreen extends StatefulWidget {
   static const String screenRoute = 'registration_screen';
@@ -17,6 +19,11 @@ class RegistrationScreen extends StatefulWidget {
 class _RegistrationScreenState extends State<RegistrationScreen> {
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
+
+  final _emailController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   String email = '';
   String password = '';
@@ -35,22 +42,29 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  // Check if the email already exists in 'pending_users' collection
+  String? _emailError;
+  String? _usernameError;
+  String? _passwordError;
+  String? _confirmPasswordError;
+
+  // Check if the email already exists in 'pending_users' or 'current_users' collections
   Future<bool> _checkIfEmailExists(String email) async {
     try {
-      final result = await _firestore.collection('pending_users').where('email', isEqualTo: email).get();
-      return result.docs.isNotEmpty;
+      final pendingUsersResult = await _firestore.collection('pending_users').where('email', isEqualTo: email).get();
+      final currentUsersResult = await _firestore.collection('current_users').where('email', isEqualTo: email).get();
+      return pendingUsersResult.docs.isNotEmpty || currentUsersResult.docs.isNotEmpty;
     } catch (e) {
       print('Error checking email: $e');
       return false;
     }
   }
 
-  // Check if the username already exists in 'pending_users' collection
+  // Check if the username already exists in 'pending_users' or 'current_users' collections
   Future<bool> _checkIfUsernameExists(String username) async {
     try {
-      final result = await _firestore.collection('pending_users').where('username', isEqualTo: username).get();
-      return result.docs.isNotEmpty;
+      final pendingUsersResult = await _firestore.collection('pending_users').where('username', isEqualTo: username).get();
+      final currentUsersResult = await _firestore.collection('current_users').where('username', isEqualTo: username).get();
+      return pendingUsersResult.docs.isNotEmpty || currentUsersResult.docs.isNotEmpty;
     } catch (e) {
       print('Error checking username: $e');
       return false;
@@ -60,9 +74,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   // Store user registration details in 'pending_users' collection
   Future<void> _storePendingRegistration(String email, String password, String username) async {
     try {
+      String hashedPassword = _hashPassword(password); // Hash the password
+
       await _firestore.collection('pending_users').add({
         'email': email,
-        'password': password, // Storing plain password is not recommended; use hashed passwords in real applications
+        'password': hashedPassword, // Store hashed password
         'username': username,
         'timestamp': FieldValue.serverTimestamp(),
       });
@@ -86,36 +102,59 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 
-  // Show error dialog with options to go back or navigate to login screen
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Error'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            child: Text('Go Back'),
-            onPressed: () {
-              setState(() {
-                showSpinner = false;
-              });
-              Navigator.of(context).pop();
-            },
-          ),
-          TextButton(
-            child: Text('Go to Login'),
-            onPressed: () {
-              setState(() {
-                showSpinner = false;
-              });
-              Navigator.of(context).pop();
-              Navigator.pushNamed(context, LoginScreen.screenRoute);
-            },
-          ),
-        ],
-      ),
-    );
+  // Validate the form fields and display errors
+  void _validateForm() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        showSpinner = true;
+      });
+
+      try {
+        emailAlreadyExists = await _checkIfEmailExists(email);
+        usernameAlreadyExists = await _checkIfUsernameExists(username);
+
+        if (emailAlreadyExists) {
+          setState(() {
+            _emailError = 'Email already exists. Please try logging in.';
+          });
+        } else if (usernameAlreadyExists) {
+          setState(() {
+            _usernameError = 'Username already exists. Please try another one.';
+          });
+        } else {
+          // Register user and store in Firestore
+          UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+          await _storePendingRegistration(email, password, username);
+          await _sendValidationEmail(userCredential.user!);
+          Navigator.pushNamed(context, LoginScreen.screenRoute);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('A validation email has been sent to $email. Please confirm your account and navigate to login.'),
+            ),
+          );
+        }
+      } catch (e) {
+        print('Registration error: $e');
+      } finally {
+        setState(() {
+          showSpinner = false;
+        });
+      }
+    }
+  }
+
+  // Validate email format
+  String? _validateEmail(String? value) {
+    final emailRegExp = RegExp(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$");
+    if (value == null || value.isEmpty) {
+      return 'Email is required';
+    } else if (!emailRegExp.hasMatch(value)) {
+      return 'Email is badly formatted';
+    }
+    return null;
   }
 
   @override
@@ -139,13 +178,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         height: 180,
                         child: Image.asset('assets/images/logo.png'),
                       ),
-                      SizedBox(height: 12), // Space between the image and text
+                      SizedBox(height: 12),
                       Text(
                         'TalkTime',
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
-                          color: Colors.deepPurple, // Adjust color as needed
+                          color: Colors.deepPurple,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -153,10 +192,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   ),
                   SizedBox(height: 50),
                   TextFormField(
+                    controller: _usernameController,
                     keyboardType: TextInputType.text,
                     textAlign: TextAlign.center,
                     onChanged: (value) {
-                      username = value;
+                      setState(() {
+                        username = value;
+                        _usernameError = null; // Clear error message
+                      });
                     },
                     decoration: InputDecoration(
                       hintText: 'Enter your username',
@@ -175,6 +218,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         borderSide: BorderSide(color: Colors.deepPurple, width: 2),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
+                      errorText: _usernameError,
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
@@ -185,10 +229,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   ),
                   SizedBox(height: 8),
                   TextFormField(
+                    controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     textAlign: TextAlign.center,
                     onChanged: (value) {
-                      email = value;
+                      setState(() {
+                        email = value;
+                        _emailError = null; // Clear error message
+                      });
                     },
                     decoration: InputDecoration(
                       hintText: 'Enter your email',
@@ -207,23 +255,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         borderSide: BorderSide(color: Colors.deepPurple, width: 2),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
+                      errorText: _emailError,
                     ),
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Email is required';
-                      }
-                      return null;
+                      return _validateEmail(value);
                     },
                   ),
                   SizedBox(height: 8),
                   TextFormField(
+                    controller: _passwordController,
                     obscureText: !_isPasswordVisible,
                     textAlign: TextAlign.center,
                     onChanged: (value) {
-                      password = value;
                       setState(() {
+                        password = value;
                         _isPasswordEntered = password.isNotEmpty;
                         passwordsMatch = password == confirmPassword;
+                        _passwordError = null; // Clear error message
                       });
                     },
                     decoration: InputDecoration(
@@ -236,11 +284,17 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.orange, width: 1),
+                        borderSide: BorderSide(
+                          color: _isPasswordEntered && passwordsMatch ? Colors.green : Colors.orange,
+                          width: 1,
+                        ),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.deepPurple, width: 2),
+                        borderSide: BorderSide(
+                          color: _isPasswordEntered && passwordsMatch ? Colors.green : Colors.deepPurple,
+                          width: 2,
+                        ),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
                       prefixIcon: _isPasswordEntered
@@ -259,6 +313,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                               },
                             )
                           : null,
+                      errorText: _passwordError,
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
@@ -269,13 +324,15 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   ),
                   SizedBox(height: 8),
                   TextFormField(
+                    controller: _confirmPasswordController,
                     obscureText: !_isConfirmPasswordVisible,
                     textAlign: TextAlign.center,
                     onChanged: (value) {
-                      confirmPassword = value;
                       setState(() {
+                        confirmPassword = value;
                         _isConfirmPasswordEntered = confirmPassword.isNotEmpty;
                         passwordsMatch = password == confirmPassword;
+                        _confirmPasswordError = null; // Clear error message
                       });
                     },
                     decoration: InputDecoration(
@@ -288,11 +345,17 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.orange, width: 1),
+                        borderSide: BorderSide(
+                          color: _isConfirmPasswordEntered && passwordsMatch ? Colors.green : Colors.orange,
+                          width: 1,
+                        ),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.deepPurple, width: 2),
+                        borderSide: BorderSide(
+                          color: _isConfirmPasswordEntered && passwordsMatch ? Colors.green : Colors.deepPurple,
+                          width: 2,
+                        ),
                         borderRadius: BorderRadius.all(Radius.circular(32)),
                       ),
                       suffixIcon: _isConfirmPasswordEntered
@@ -308,13 +371,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                             },
                           )
                         : null,
+                      errorText: _confirmPasswordError,
                     ),
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return 'Confirm password is required';
                       }
                       if (value != password) {
-                        return 'Passwords do not match';
+                        return 'Passwords should match';
                       }
                       return null;
                     },
@@ -323,43 +387,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   MyButton(
                     color: Colors.blue,
                     title: 'Register',
-                    onPressed: () async {
-                      if (_formKey.currentState!.validate()) {
-                        setState(() {
-                          showSpinner = true;
-                        });
-                        try {
-                          emailAlreadyExists = await _checkIfEmailExists(email);
-                          usernameAlreadyExists = await _checkIfUsernameExists(username);
-
-                          if (emailAlreadyExists) {
-                            _showErrorDialog('Email already exists. Please try logging in.');
-                          } else if (usernameAlreadyExists) {
-                            _showErrorDialog('Username already exists. Please try another one.');
-                          } else {
-                            // Register user and store in Firestore
-                            UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
-                              email: email,
-                              password: password,
-                            );
-                            await _storePendingRegistration(email, password, username);
-                            await _sendValidationEmail(userCredential.user!);
-                            Navigator.pushNamed(context, LoginScreen.screenRoute);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('A validation email has been sent to $email. Please confirm your account and navigate to login.'),
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          print('Registration error: $e');
-                        } finally {
-                          setState(() {
-                            showSpinner = false;
-                          });
-                        }
-                      }
-                    },
+                    onPressed: _validateForm,
                   ),
                   SizedBox(height: 24),
                   Row(
@@ -384,5 +412,12 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         ),
       ),
     );
+  }
+
+  // Function to hash the password using SHA-256
+  String _hashPassword(String password) {
+    var bytes = utf8.encode(password); // Encode the password to UTF-8
+    var digest = sha256.convert(bytes); // Apply SHA-256 hashing
+    return digest.toString(); // Return the hashed password as a string
   }
 }
