@@ -91,7 +91,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   // Send email verification to the newly registered user
   Future<void> _sendValidationEmail(User user) async {
     try {
-      if (user != null && !user.emailVerified) {
+      if (!user.emailVerified) {
         await user.sendEmailVerification();
         print('Verification email sent to ${user.email}');
       } else {
